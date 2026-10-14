@@ -22,13 +22,17 @@ let initializing: Promise<void> | null = null;
 let sqliteQueue: Promise<unknown> = Promise.resolve();
 const INVENTORY_LOCK = 1741936192;
 
+function postgresConnectionUrl() {
+  return process.env.DATABASE_URL?.trim() || process.env.POSTGRES_URL?.trim();
+}
+
 export function storageConfiguration() {
-  if (process.env.DATABASE_URL) return { mode: 'postgres' as const, configured: true, persistent: true };
+  if (postgresConnectionUrl()) return { mode: 'postgres' as const, configured: true, persistent: true };
   if (process.env.VERCEL || (process.env.NODE_ENV === 'production' &&
     !(process.env.ALLOW_SQLITE_PRODUCTION === 'true' && process.env.SQLITE_FILE &&
       path.isAbsolute(process.env.SQLITE_FILE) && !process.env.SQLITE_FILE.startsWith('/tmp/')))) {
     return { mode: 'unconfigured' as const, configured: false, persistent: false,
-      error: 'Configura DATABASE_URL con PostgreSQL persistente. Vercel no permite una base SQLite local.' };
+      error: 'Conecta PostgreSQL (por ejemplo Neon) mediante DATABASE_URL o POSTGRES_URL. Vercel necesita almacenamiento persistente.' };
   }
   return { mode: 'sqlite' as const, configured: true, persistent: true };
 }
@@ -53,16 +57,22 @@ async function schema(db: Connection) {
   await db.query('CREATE INDEX IF NOT EXISTS orders_created_at ON orders(created_at)');
   await db.query('CREATE TABLE IF NOT EXISTS reservations (order_id TEXT NOT NULL REFERENCES orders(id), product_id TEXT NOT NULL REFERENCES products(id), quantity INTEGER NOT NULL CHECK (quantity > 0), expires_at BIGINT NOT NULL, PRIMARY KEY (order_id, product_id))');
   await db.query('CREATE INDEX IF NOT EXISTS reservations_expiry ON reservations(expires_at)');
-  for (const product of initialProducts) {
+  // One round trip per seed, rather than one per product on every cold instance.
+  // Existing rows retain the owner's catalog and current inventory.
+  const seedValues = initialProducts.flatMap((product) => {
     const stock = product.stockCount ?? (product.stock === 'DISPONIBLE' ? 1 : 0);
-    await db.query('INSERT INTO products(id, data, stock) VALUES (?, ?, ?) ON CONFLICT(id) DO NOTHING', [product.id, JSON.stringify(product), stock]);
+    return [product.id, JSON.stringify(product), stock];
+  });
+  if (seedValues.length) {
+    const placeholders = initialProducts.map(() => '(?, ?, ?)').join(', ');
+    await db.query(`INSERT INTO products(id, data, stock) VALUES ${placeholders} ON CONFLICT(id) DO NOTHING`, seedValues);
   }
 }
 async function initialize() {
   const configuration = storageConfiguration();
   if (!configuration.configured) throw new ConfigurationError(configuration.error);
   if (configuration.mode === 'postgres') {
-    const url = new URL(process.env.DATABASE_URL!);
+    const url = new URL(postgresConnectionUrl()!);
     const loopback = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(url.hostname);
     // Connection-string SSL options can override pg's SSL object. Require
     // certificate verification for remote PostgreSQL hosts.

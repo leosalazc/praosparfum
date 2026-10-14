@@ -43,7 +43,7 @@ export function SettingsTab() {
         ) : status.storage.mode === 'sqlite' ? (
           <p className="text-neutral-600">Puedes editar el catálogo y probar pedidos en este entorno. Para desplegar en Vercel, configura una base de datos PostgreSQL mediante <span className={code}>DATABASE_URL</span>: los archivos locales del servidor no son almacenamiento permanente allí.</p>
         ) : (
-          <p className="text-neutral-600">Falta <span className={code}>DATABASE_URL</span>. Configura la conexión segura a PostgreSQL en las variables del servidor para guardar productos, pedidos e inventario.</p>
+          <p className="text-neutral-600">Conecta una base Neon desde la sección Storage de tu proyecto en Vercel. La conexión debe quedar guardada como <span className={code}>DATABASE_URL</span> o <span className={code}>POSTGRES_URL</span>. Después vuelve a desplegar para activar productos, pedidos e inventario.</p>
         )}
         {status.storage.error && <p className="text-red-700" role="alert">{status.storage.error}</p>}
       </Row>

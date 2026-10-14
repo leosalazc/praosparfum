@@ -56,7 +56,7 @@ npm run build  # genera dist y server-dist
 
    | Variable | Valor/configuración |
    |---|---|
-   | `DATABASE_URL` | Conexión PostgreSQL privada del proveedor. |
+   | `DATABASE_URL` | Conexión PostgreSQL privada del proveedor; en Neon usa la conexión agrupada (pooled). También se acepta `POSTGRES_URL` si la integración crea ese nombre. |
    | `APP_URL` | Dominio definitivo HTTPS, sin ruta, por ejemplo tu URL de Vercel. Se utiliza para los retornos de pago; el administrador acepta también el dominio real servido por la aplicación. |
    | `WEBPAY_ENV` | `link`, según tu flujo actual. |
    | `WEBPAY_FORM_ID` | `114823`, formulario incluido en el proyecto entregado. Verifica que sea el de tu comercio. |
@@ -70,6 +70,28 @@ npm run build  # genera dist y server-dist
    comprueba que SQL tenga una conexión verificada y que Webpay esté configurado.
 5. Revisa el catálogo, precios, unidades físicas y pedidos; realiza una compra controlada
    antes de abrir ventas. La publicación en Vercel y un cobro real requieren tu configuración.
+
+### Crear Neon desde Vercel
+
+En la cuenta de Vercel abre el proyecto asociado a `praosparfum-drab.vercel.app`.
+En **Storage → Create Database** elige **Neon**, crea una base en el plan gratuito
+y conéctala al proyecto para **Production**. Si el panel ofrece una región cercana a
+São Paulo, úsala para reducir la demora con la región `gru1` de la aplicación.
+
+La integración añade la conexión privada al proyecto. Comprueba únicamente que exista
+`DATABASE_URL` o `POSTGRES_URL`; no publiques su valor. Si configuraste un prefijo
+personalizado para los nombres, añade la conexión agrupada como `DATABASE_URL` en las
+variables privadas de Vercel. No se utiliza `POSTGRES_PRISMA_URL` ni una URL HTTP como
+conexión PostgreSQL. Después vuelve a desplegar el último commit de `main`.
+
+En `/admin` → Ajustes debe aparecer **Almacenamiento: PostgreSQL** con la conexión
+verificada. El primer acceso crea las tablas y los 46 productos iniciales. Los siguientes
+inicios conservan los productos editados y su stock. Revisa las unidades físicas antes
+de aceptar pedidos. Los datos sobreviven a despliegues porque se guardan en Neon.
+
+Crear y conectar la base requiere la sesión de tu cuenta de Vercel/Neon. Este repositorio
+no incluye esa conexión ni crea cuentas automáticamente. Conecta bases de prueba
+distintas para Preview; elige solo Production para la base real de la tienda.
 
 ### Si no puedes entrar al administrador
 

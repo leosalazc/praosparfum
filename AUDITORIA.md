@@ -132,3 +132,24 @@ Validación de esta alternativa:
 
 La web consultada aún devuelve falta de `DATABASE_URL`. Este cambio permite autenticarse
 sin esa conexión, pero no sustituye PostgreSQL para guardar productos, pedidos o stock.
+
+## Preparación de Neon desde Vercel
+
+14 de octubre de 2026: el propietario eligió PostgreSQL con Neon y creación desde Vercel.
+El servidor acepta `DATABASE_URL` y también `POSTGRES_URL`, conservando la prioridad de
+la primera. Las variables vacías no habilitan SQLite en Vercel. Se mantiene TLS con
+verificación de certificados y bloqueo transaccional compatible con el pooler de Neon.
+
+La carga inicial de los 46 productos ahora utiliza una sola consulta parametrizada,
+en lugar de 46 llamadas por instancia nueva. Los registros existentes no se sustituyen:
+se conservan stock, precios y fichas editadas. El administrador y el README indican
+cómo conectar la integración Neon al proyecto de producción.
+
+Las suites de API e inventario pasaron 20 pruebas con PostgreSQL 17 real y esquemas
+temporales aislados. La suite completa pasó 42 pruebas; TypeScript y el build también.
+Además, dos procesos separados en producción/Vercel usando solo `POSTGRES_URL`
+comprobaron catálogo, edición persistente, reserva y ocho confirmaciones simultáneas
+con un único descuento de stock. El segundo proceso recuperó los datos sin volver a
+descontar ni restaurar el catálogo inicial. El contenedor y las credenciales de prueba
+se eliminaron. Esto comprueba PostgreSQL local; la conexión remota a Neon aún
+depende de crear la base, conectar la integración y volver a desplegar en Vercel.
