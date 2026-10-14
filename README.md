@@ -65,6 +65,25 @@ npm run build  # genera dist y server-dist
 5. Revisa el catálogo, precios, unidades físicas y pedidos; realiza una compra controlada
    antes de abrir ventas. La publicación en Vercel y un cobro real requieren tu configuración.
 
+### Si no puedes entrar al administrador
+
+Las variables de **Codex** configuran el entorno de desarrollo. La web publicada
+necesita sus propias variables en **Vercel**, en el proyecto asociado al dominio
+que estás abriendo. Si has importado el repositorio de nuevo, revisa el proyecto
+correspondiente a la nueva dirección.
+
+En ese proyecto abre **Settings → Environment Variables**, selecciona **Production**
+y guarda el nombre exacto `ADMIN_PASSWORD` con tu contraseña como valor, y
+`ADMIN_SESSION_SECRET` con una clave aleatoria independiente de 32 caracteres o más.
+Los valores no deben ser los nombres de las variables ni las explicaciones del ejemplo.
+Después usa **Redeploy** sobre el último despliegue de producción: cambiar las variables
+no actualiza los procesos de un despliegue existente.
+
+El login ahora indica cuál variable está ausente, vacía o fuera del rango aceptado,
+sin mostrar su contenido. Si sigues viendo el mensaje antiguo que menciona ambas
+variables, el despliegue todavía no contiene esta mejora de diagnóstico. Elige el
+último commit de main antes de volver a desplegar.
+
 La conexión PostgreSQL remota siempre verifica TLS y sus certificados. Para una CA privada
 configura `DATABASE_SSL_CA` con el PEM autorizado o `PGSSLROOTCERT` en un servidor Node.
 No se acepta una base SQLite dentro de Vercel: sus discos temporales perderían datos.

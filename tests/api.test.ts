@@ -405,6 +405,10 @@ test('missing admin credentials and production payment credentials fail safely',
     delete process.env.ADMIN_PASSWORD;
     const missing = await h.request('/api/admin/login', { method: 'POST', body: { password } });
     assert.equal(missing.status, 503);
+    assert.equal(missing.data.code, 'ADMIN_CONFIGURATION_INCOMPLETE');
+    assert.match(missing.data.error, /ADMIN_PASSWORD/);
+    assert(!missing.data.error.includes('ADMIN_SESSION_SECRET'));
+    assert(!missing.data.error.includes(password));
     assert.equal((await h.request('/api/admin/session', { admin: true })).status, 401);
   } finally {
     process.env.ADMIN_PASSWORD = existingPassword;
@@ -427,6 +431,41 @@ test('missing admin credentials and production payment credentials fail safely',
     if (priorCommerce === undefined) delete process.env.WEBPAY_COMMERCE_CODE; else process.env.WEBPAY_COMMERCE_CODE = priorCommerce;
     if (priorKey === undefined) delete process.env.WEBPAY_API_KEY; else process.env.WEBPAY_API_KEY = priorKey;
     await unconfigured.close();
+  }
+});
+
+test('a bad session key identifies only its own configuration and setup retries do not throttle corrected login', async () => {
+  const h = await harness();
+  const existingSecret = process.env.ADMIN_SESSION_SECRET;
+  const existingNodeEnv = process.env.NODE_ENV;
+  const existingVercel = process.env.VERCEL;
+  try {
+    process.env.VERCEL = '1';
+    delete process.env.ADMIN_SESSION_SECRET;
+    // Model an HTTPS edge ahead of the local test server without altering the browser destination.
+    process.env.APP_URL = 'https://admin.example.test';
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const missing = await h.request('/api/admin/login', { method: 'POST', body: { password }, origin: 'https://admin.example.test' });
+      assert.equal(missing.status, 503);
+      assert.equal(missing.data.code, 'ADMIN_CONFIGURATION_INCOMPLETE');
+      assert.match(missing.data.error, /Falta configurar ADMIN_SESSION_SECRET/);
+      assert(!missing.data.error.includes('ADMIN_PASSWORD'));
+      assert(!missing.data.error.includes(password));
+    }
+    process.env.ADMIN_SESSION_SECRET = 'too-short-test-key';
+    const short = await h.request('/api/admin/login', { method: 'POST', body: { password }, origin: 'https://admin.example.test' });
+    assert.equal(short.status, 503);
+    assert.match(short.data.error, /ADMIN_SESSION_SECRET.*32/);
+    assert(!short.data.error.includes('too-short-test-key'));
+    process.env.ADMIN_SESSION_SECRET = existingSecret;
+    const valid = await h.request('/api/admin/login', { method: 'POST', body: { password }, origin: 'https://admin.example.test' });
+    assert.equal(valid.status, 200);
+    assert.deepEqual(valid.data, { ok: true });
+  } finally {
+    if (existingSecret === undefined) delete process.env.ADMIN_SESSION_SECRET; else process.env.ADMIN_SESSION_SECRET = existingSecret;
+    if (existingVercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = existingVercel;
+    process.env.NODE_ENV = existingNodeEnv;
+    await h.close();
   }
 });
 

@@ -80,3 +80,14 @@ los orígenes ausentes o malformados y los puertos/dominios diferentes se rechaz
 Las nueve nuevas pruebas cubren login y escritura reales con APP_URL desactualizado,
 terminación HTTPS y los casos negativos de protección CSRF. La suite completa actual
 tiene 30 pruebas aprobadas; también pasaron TypeScript y el build de producción.
+
+## Diagnóstico de configuración administrativa
+
+14 de octubre de 2026: el mensaje de login mencionaba ambas variables aunque solo
+fallara una. Ahora identifica la variable y si está ausente, vacía o fuera del rango,
+sin revelar valores ni longitudes reales. La clave estable de sesión también es
+obligatoria cuando VERCEL=1. Los reintentos durante una configuración incompleta no
+agotan el límite de intentos de contraseña; el límite sigue activo para logins con
+configuración válida. Codex y el proyecto publicado en Vercel requieren configuración
+independiente; las variables de uno no se transfieren al otro. La suite actual de
+36 pruebas pasó, al igual que TypeScript y el build de producción.

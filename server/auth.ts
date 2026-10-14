@@ -10,16 +10,41 @@ function safeEqual(a: string, b: string) {
   return crypto.timingSafeEqual(ha, hb);
 }
 
-export const adminPasswordConfigured = () => !!process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD.length >= 12 && process.env.ADMIN_PASSWORD.length <= 200;
+function adminPasswordIssue(): string | undefined {
+  const password = process.env.ADMIN_PASSWORD;
+  if (password === undefined) return 'Falta configurar ADMIN_PASSWORD: define una contraseña de 12 a 200 caracteres en las variables de entorno de este despliegue.';
+  if (password.length === 0) return 'ADMIN_PASSWORD está vacía: define una contraseña de 12 a 200 caracteres.';
+  if (password.length < 12) return 'ADMIN_PASSWORD debe tener al menos 12 caracteres y como máximo 200.';
+  if (password.length > 200) return 'ADMIN_PASSWORD debe tener como máximo 200 caracteres y al menos 12.';
+}
+
+function adminSessionIssue(): string | undefined {
+  const secret = process.env.ADMIN_SESSION_SECRET;
+  if (secret === undefined) {
+    if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') {
+      return 'Falta configurar ADMIN_SESSION_SECRET: define una clave independiente de al menos 32 caracteres en las variables de entorno de este despliegue de producción o Vercel.';
+    }
+    return;
+  }
+  if (secret.length === 0) return 'ADMIN_SESSION_SECRET está vacía: define una clave independiente de al menos 32 caracteres.';
+  if (secret.length < 32) return 'ADMIN_SESSION_SECRET debe tener al menos 32 caracteres.';
+}
+
+/** Configuration errors identify the affected variable without exposing its value or length. */
+export function adminConfigurationIssues(): string[] {
+  return [adminPasswordIssue(), adminSessionIssue()].filter((issue): issue is string => issue !== undefined);
+}
+
+export const adminPasswordConfigured = () => adminPasswordIssue() === undefined;
 
 export function adminSessionConfigured() {
-  const secret = process.env.ADMIN_SESSION_SECRET;
-  return secret ? secret.length >= 32 : process.env.NODE_ENV !== 'production';
+  return adminSessionIssue() === undefined;
 }
 
 function sessionSecret() {
-  if (!adminSessionConfigured()) throw new Error('ADMIN_SESSION_SECRET debe tener al menos 32 caracteres.');
-  return process.env.ADMIN_SESSION_SECRET || developmentSecret;
+  const issue = adminSessionIssue();
+  if (issue) throw new Error(issue);
+  return process.env.ADMIN_SESSION_SECRET ?? developmentSecret;
 }
 
 export function checkPassword(password: unknown): boolean {
@@ -32,7 +57,8 @@ function passwordRevision() {
 
 /** Signed, expiring credential; the password never leaves the server in a response. */
 export function createSession() {
-  if (!adminPasswordConfigured()) throw new Error('ADMIN_PASSWORD no configurado.');
+  const issue = adminPasswordIssue();
+  if (issue) throw new Error(issue);
   const payload = Buffer.from(JSON.stringify({
     exp: Math.floor(Date.now() / 1000) + ADMIN_SESSION_SECONDS,
     nonce: crypto.randomBytes(16).toString('base64url'),

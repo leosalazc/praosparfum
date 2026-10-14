@@ -6,7 +6,7 @@ import { CHILE_REGIONS, Order, OrderItem, OrderStatus, ORDER_STATUSES, getVarian
 import { getCatalog, invalidateCatalog } from './catalog.js';
 import { confirmPaidOrder, getOrder, getOrderByPaymentToken, listOrders, reserveOrder, updateOrder } from './orders.js';
 import { NOTIFY_EMAIL, sendCustomerConfirmation, sendOrderEmails, sendPendingOrderEmail, sendTestEmail, smtpConfigured } from './mailer.js';
-import { ADMIN_SESSION_COOKIE, ADMIN_SESSION_SECONDS, adminPasswordConfigured, adminSessionConfigured, checkPassword, createSession, sessionFromCookie, verifySession } from './auth.js';
+import { ADMIN_SESSION_COOKIE, ADMIN_SESSION_SECONDS, adminConfigurationIssues, adminPasswordConfigured, adminSessionConfigured, checkPassword, createSession, sessionFromCookie, verifySession } from './auth.js';
 import * as adminProducts from './products.js';
 import { storageStatus } from './database.js';
 import { hasAllowedAdminOrigin } from './origin.js';
@@ -250,8 +250,11 @@ export function createApp(options: { webpay?: WebpayClient } = {}) {
   }));
 
   app.post('/api/admin/login', (req, res) => {
+    const configurationIssues = adminConfigurationIssues();
+    if (configurationIssues.length) {
+      return res.status(503).json({ error: configurationIssues.join(' '), code: 'ADMIN_CONFIGURATION_INCOMPLETE' });
+    }
     if (rate.limited(`login:${req.ip}`, 8, 10 * 60_000)) return res.status(429).json({ error: 'Demasiados intentos. Espera 10 minutos.' });
-    if (!adminPasswordConfigured() || !adminSessionConfigured()) return res.status(503).json({ error: 'Falta configurar ADMIN_PASSWORD (12 a 200 caracteres) y ADMIN_SESSION_SECRET (mínimo 32 en producción).' });
     if (!checkPassword(req.body?.password)) return res.status(401).json({ error: 'Contraseña incorrecta.' });
     res.cookie(ADMIN_SESSION_COOKIE, createSession(), { ...cookieOptions(req), maxAge: ADMIN_SESSION_SECONDS * 1000 });
     res.json({ ok: true });
