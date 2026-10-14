@@ -52,13 +52,14 @@ npm run build  # genera dist y server-dist
    | `DATABASE_URL` | Conexión PostgreSQL privada del proveedor. |
    | `ADMIN_PASSWORD` | Tu contraseña privada de 12 a 200 caracteres. |
    | `ADMIN_SESSION_SECRET` | Clave aleatoria privada de al menos 32 caracteres. |
-   | `APP_URL` | Dominio definitivo HTTPS, sin ruta, por ejemplo tu URL de Vercel. Debe coincidir con el origen desde el que abres el administrador. |
+   | `APP_URL` | Dominio definitivo HTTPS, sin ruta, por ejemplo tu URL de Vercel. Se utiliza para los retornos de pago; el administrador acepta también el dominio real servido por la aplicación. |
    | `WEBPAY_ENV` | `link`, según tu flujo actual. |
    | `WEBPAY_FORM_ID` | `114823`, formulario incluido en el proyecto entregado. Verifica que sea el de tu comercio. |
    | `RESERVATION_TTL_MINUTES` | `30` por defecto; ajustable hasta 1440 (24 horas). |
 
-   No uses el prefijo `VITE_` para las claves: las expondría al navegador. Para usar el
-   panel en un dominio alternativo/Preview, configura `APP_URL` para ese despliegue.
+   No uses el prefijo `VITE_` para las claves: las expondría al navegador. El panel puede
+   abrirse desde el dominio propio o de Vercel que sirve el mismo despliegue; no requiere
+   cambiar `APP_URL` por cada alias. En Preview, usa una base y claves de prueba separadas.
 4. Despliega o vuelve a desplegar después de definir las variables. En `/admin` → Ajustes,
    comprueba que SQL tenga una conexión verificada y que Webpay esté configurado.
 5. Revisa el catálogo, precios, unidades físicas y pedidos; realiza una compra controlada
@@ -130,7 +131,11 @@ La sesión administrativa usa cookie HttpOnly, SameSite=Strict y Secure en produ
 con vencimiento a las ocho horas. No se guarda la contraseña en localStorage. Cambiar
 `ADMIN_PASSWORD` o `ADMIN_SESSION_SECRET` invalida las sesiones anteriores. Salir elimina
 la cookie del navegador; una copia robada sigue vigente hasta su expiración o rotación.
-Las escrituras administrativas exigen un Origin que coincida con `APP_URL`.
+Las escrituras administrativas exigen un Origin válido que coincida con el dominio y
+puerto que sirve la petición, o con `APP_URL` como origen público configurado para un
+proxy con Host interno. En producción se exige HTTPS. Se rechazan solicitudes que el
+navegador identifica como provenientes de otro sitio y no se confía en encabezados
+forwarded enviados por el cliente. `APP_URL` no limita el login al dominio canónico.
 
 El límite de intentos actual vive por instancia: en un despliegue con muchas instancias
 activa también reglas compartidas de protección en Vercel/WAF antes de tráfico masivo.

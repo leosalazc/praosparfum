@@ -67,3 +67,16 @@ suficiente de funcionamiento.
 Estas pruebas se hicieron con datos aislados y sin enviar pagos ni correos reales.
 No prueban que el proyecto ya esté publicado, que una base remota esté conectada ni
 que el formulario del comercio haya cobrado un importe real.
+
+## Corrección de acceso desde dominios de Vercel y proxies HTTPS
+
+14 de octubre de 2026: el administrador comparaba el origen exclusivamente con
+`APP_URL`, bloqueando el login desde un alias legítimo o cuando el proxy terminaba
+HTTPS delante de Express. La validación ahora reconoce el dominio y puerto que
+sirve la aplicación, mantiene `APP_URL` como respaldo explícito para un proxy con
+Host interno y exige HTTPS en producción. No autoriza dominios por comodín ni
+confía en X-Forwarded-Host/Proto del cliente. Las solicitudes de otros sitios,
+los orígenes ausentes o malformados y los puertos/dominios diferentes se rechazan.
+Las nueve nuevas pruebas cubren login y escritura reales con APP_URL desactualizado,
+terminación HTTPS y los casos negativos de protección CSRF. La suite completa actual
+tiene 30 pruebas aprobadas; también pasaron TypeScript y el build de producción.

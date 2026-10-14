@@ -9,6 +9,7 @@ import { NOTIFY_EMAIL, sendCustomerConfirmation, sendOrderEmails, sendPendingOrd
 import { ADMIN_SESSION_COOKIE, ADMIN_SESSION_SECONDS, adminPasswordConfigured, adminSessionConfigured, checkPassword, createSession, sessionFromCookie, verifySession } from './auth.js';
 import * as adminProducts from './products.js';
 import { storageStatus } from './database.js';
+import { hasAllowedAdminOrigin } from './origin.js';
 
 const { WebpayPlus, Environment, IntegrationApiKeys, IntegrationCommerceCodes, Options } = pkg;
 
@@ -108,9 +109,9 @@ export function createApp(options: { webpay?: WebpayClient } = {}) {
 
   const baseUrl = (req: express.Request) => validAppUrl() || `${req.protocol}://${req.get('host')}`;
   const requireOrigin: express.RequestHandler = (req, res, next) => {
-    const origin = req.get('origin');
-    const expected = baseUrl(req);
-    if (!origin || origin !== expected) return res.status(403).json({ error: 'Origen de la solicitud no permitido.' });
+    if (!hasAllowedAdminOrigin(req, { canonicalOrigin: validAppUrl() })) {
+      return res.status(403).json({ error: 'Origen de la solicitud no permitido.' });
+    }
     next();
   };
   app.use('/api/admin', (req, res, next) => {
