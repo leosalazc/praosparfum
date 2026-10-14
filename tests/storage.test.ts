@@ -16,6 +16,8 @@ process.env.NODE_ENV = 'test';
 process.env.SQLITE_FILE = join(temporary, 'shop.sqlite');
 process.env.RESERVATION_TTL_MINUTES = '30';
 if (!postgres) delete process.env.DATABASE_URL;
+// Ignore inherited aliases; PostgreSQL tests select an isolated schema explicitly.
+delete process.env.POSTGRES_URL;
 
 let database: typeof import('../server/database.js');
 let catalog: typeof import('../server/catalog.js');

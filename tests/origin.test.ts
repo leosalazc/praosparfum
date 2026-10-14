@@ -156,7 +156,7 @@ test('admin can log in and edit products over a public HTTPS proxy despite APP_U
   const password = randomBytes(24).toString('base64url');
   try {
     await withEnvironment({
-      NODE_ENV: 'test', VERCEL: undefined, DATABASE_URL: undefined, SQLITE_FILE: join(temporary, 'shop.sqlite'),
+      NODE_ENV: 'test', VERCEL: undefined, DATABASE_URL: undefined, POSTGRES_URL: undefined, SQLITE_FILE: join(temporary, 'shop.sqlite'),
       ADMIN_PASSWORD: password, ADMIN_SESSION_SECRET: randomBytes(48).toString('base64url'),
       APP_URL: 'http://localhost:3000', WEBPAY_ENV: 'link', WEBPAY_FORM_ID: '123456', TRUST_PROXY: undefined,
     }, async () => {

@@ -186,3 +186,6 @@ El envío de correo no tiene credenciales configuradas en producción.
 La suite completa pasa 49 pruebas, incluidas las nuevas regresiones de formulario
 ausente/vacío, reemplazo inválido y conservación del stock hasta confirmar el pago.
 TypeScript y el build de frontend/servidor pasan.
+Los runners de API/inventario/origen aíslan también `POSTGRES_URL`, para que una
+integración heredada no dirija las pruebas a la tienda real. Las 49 pruebas pasaron
+incluso al inyectar un alias PostgreSQL sintético que nunca debe utilizarse.

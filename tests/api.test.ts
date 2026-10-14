@@ -22,6 +22,8 @@ const postgresUrl = postgres ? process.env.DATABASE_URL : undefined;
 const postgresSchema = `praos_api_${randomBytes(8).toString('hex')}`;
 let schemaPool: Pool | undefined;
 if (!postgres) delete process.env.DATABASE_URL;
+// Never let an inherited integration alias select a real store during tests.
+delete process.env.POSTGRES_URL;
 delete process.env.SMTP_USER;
 delete process.env.SMTP_PASS;
 
