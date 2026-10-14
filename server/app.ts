@@ -21,14 +21,15 @@ export interface WebpayClient {
 
 function paymentConfiguration() {
   const env = process.env.WEBPAY_ENV || 'link';
+  const formId = process.env.WEBPAY_FORM_ID?.trim() || '114823';
   const production = env === 'production';
   const mode: 'link' | 'plus' = env === 'link' ? 'link' : 'plus';
   let error: string | undefined;
   if (!['link', 'integration', 'production'].includes(env)) error = 'WEBPAY_ENV debe ser link, integration o production.';
-  if (mode === 'link' && !/^\d{1,20}$/.test(process.env.WEBPAY_FORM_ID || '')) error = 'Falta configurar WEBPAY_FORM_ID del comercio.';
+  if (mode === 'link' && !/^\d{1,20}$/.test(formId)) error = 'Falta configurar WEBPAY_FORM_ID del comercio.';
   if (production && (!process.env.WEBPAY_COMMERCE_CODE || !process.env.WEBPAY_API_KEY)) error = 'Faltan las credenciales de Webpay Plus producción.';
   if (production && !validAppUrl(true)) error = 'Webpay producción requiere APP_URL con HTTPS.';
-  return { mode, production, configured: !error, error, formId: process.env.WEBPAY_FORM_ID || '' };
+  return { mode, production, configured: !error, error, formId };
 }
 
 function validAppUrl(httpsOnly = false) {

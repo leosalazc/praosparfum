@@ -518,6 +518,71 @@ test('production login and a separate app instance share packaged auth without e
   }
 });
 
+test('Webpay link uses the original public form when its override is absent or blank and only reserves inventory', async () => {
+  const priorMode = process.env.WEBPAY_ENV;
+  const priorFormId = process.env.WEBPAY_FORM_ID;
+  try {
+    process.env.WEBPAY_ENV = 'link';
+    for (const formId of [undefined, '', ' \t ']) {
+      if (formId === undefined) delete process.env.WEBPAY_FORM_ID;
+      else process.env.WEBPAY_FORM_ID = formId;
+      const h = await harness();
+      try {
+        const item = await product(h, 2);
+        const checkout = await h.request('/api/checkout', { method: 'POST', body: checkoutBody(item.id) });
+        assert.equal(checkout.status, 200);
+        assert.equal(checkout.data.mode, 'link');
+        assert.equal(h.webpay.transactions.size, 0);
+        assert.equal(h.webpay.commitCalls, 0);
+        const pending = await order(h, checkout.data.orderId);
+        assert.equal(pending.status, 'pendiente_pago');
+        assert.equal(pending.stockApplied, false);
+        const publicResult = await h.request(`/api/orders/${pending.id}?key=${checkout.data.key}`);
+        assert.equal(publicResult.status, 200);
+        assert.deepEqual(publicResult.data.payForm, {
+          action: 'https://www.webpay.cl/backpub/external/form-pay',
+          idFormulario: '114823',
+          monto: 15000,
+        });
+        const inventory = await catalogProduct(h, item.id, true);
+        assert.equal(inventory.stockCount, 2);
+        assert.equal(inventory.reservedCount, 1);
+      } finally { await h.close(); }
+    }
+  } finally {
+    if (priorMode === undefined) delete process.env.WEBPAY_ENV; else process.env.WEBPAY_ENV = priorMode;
+    if (priorFormId === undefined) delete process.env.WEBPAY_FORM_ID; else process.env.WEBPAY_FORM_ID = priorFormId;
+  }
+});
+
+test('an explicitly invalid Webpay form override blocks checkout without persisting an order or reserving stock', async () => {
+  const priorMode = process.env.WEBPAY_ENV;
+  const priorFormId = process.env.WEBPAY_FORM_ID;
+  process.env.WEBPAY_ENV = 'link';
+  process.env.WEBPAY_FORM_ID = 'invalid-form-id';
+  const h = await harness();
+  try {
+    const item = await product(h, 2);
+    const beforeOrders = await h.request('/api/admin/orders', { admin: true });
+    assert.equal(beforeOrders.status, 200);
+    const checkout = await h.request('/api/checkout', { method: 'POST', body: checkoutBody(item.id) });
+    assert.equal(checkout.status, 503);
+    assert.equal(typeof checkout.data.error, 'string');
+    const afterOrders = await h.request('/api/admin/orders', { admin: true });
+    assert.equal(afterOrders.status, 200);
+    assert.deepEqual(afterOrders.data.map((value: any) => value.id), beforeOrders.data.map((value: any) => value.id));
+    const inventory = await catalogProduct(h, item.id, true);
+    assert.equal(inventory.stockCount, 2);
+    assert.equal(inventory.reservedCount, 0);
+    assert.equal(h.webpay.transactions.size, 0);
+    assert.equal(h.webpay.commitCalls, 0);
+  } finally {
+    if (priorMode === undefined) delete process.env.WEBPAY_ENV; else process.env.WEBPAY_ENV = priorMode;
+    if (priorFormId === undefined) delete process.env.WEBPAY_FORM_ID; else process.env.WEBPAY_FORM_ID = priorFormId;
+    await h.close();
+  }
+});
+
 test('Webpay link orders remain pending until administrator confirmation, which consumes inventory once', async () => {
   process.env.WEBPAY_ENV = 'link';
   process.env.WEBPAY_FORM_ID = '123456';

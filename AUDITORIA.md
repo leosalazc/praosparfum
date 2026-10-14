@@ -167,3 +167,22 @@ privada y no se almacena en caché. No cambia la selección de base ni debilita 
 La suite completa pasa 47 pruebas, incluidas cinco sobre filtrado de secretos, límites
 del diagnóstico, ausencia de conexión y rechazo de acceso sin sesión. TypeScript y la
 compilación de frontend/servidor también pasan.
+
+## Conexión real de producción verificada
+
+14 de octubre de 2026: `https://praosparfum-drab.vercel.app` confirmó PostgreSQL
+configurado y disponible en el despliegue Production `8057110`. El catálogo público
+respondió HTTP 200 con 46 productos e inventario no negativo; las listas privadas de
+productos y pedidos respondieron 200 con sesión, y el acceso anónimo a productos
+administrativos devolvió 401. El login y el cierre de sesión respondieron 200.
+No se editaron fichas, crearon pedidos reales ni enviaron pagos o correos para comprobarlo.
+
+Se detectó que el botón Webpay seguía bloqueado por una variable ausente. Se restauró
+el formulario público `114823`, comprobado en el proyecto original, como valor inicial
+cuando `WEBPAY_FORM_ID` falta o está vacío. Un reemplazo numérico válido se conserva y
+un valor explícito inválido sigue bloqueando el pago. Se mantiene la confirmación
+manual del importe recibido; no se activó Webpay Plus ni se realizó un cobro real.
+El envío de correo no tiene credenciales configuradas en producción.
+La suite completa pasa 49 pruebas, incluidas las nuevas regresiones de formulario
+ausente/vacío, reemplazo inválido y conservación del stock hasta confirmar el pago.
+TypeScript y el build de frontend/servidor pasan.

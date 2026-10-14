@@ -59,7 +59,7 @@ npm run build  # genera dist y server-dist
    | `DATABASE_URL` | Conexión PostgreSQL privada del proveedor; en Neon usa la conexión agrupada (pooled). También se acepta `POSTGRES_URL` si la integración crea ese nombre. |
    | `APP_URL` | Dominio definitivo HTTPS, sin ruta, por ejemplo tu URL de Vercel. Se utiliza para los retornos de pago; el administrador acepta también el dominio real servido por la aplicación. |
    | `WEBPAY_ENV` | `link`, según tu flujo actual. |
-   | `WEBPAY_FORM_ID` | `114823`, formulario incluido en el proyecto entregado. Verifica que sea el de tu comercio. |
+   | `WEBPAY_FORM_ID` | Opcional: reemplaza `114823`, formulario original que el servidor usa automáticamente. Verifica que sea el de tu comercio. |
    | `RESERVATION_TTL_MINUTES` | `30` por defecto; ajustable hasta 1440 (24 horas). |
 
    No uses el prefijo `VITE_` para las claves: las expondría al navegador. El panel puede
@@ -148,6 +148,10 @@ con `ALLOW_SQLITE_PRODUCTION=true` y `SQLITE_FILE` absoluto fuera de `/tmp`.
   Es actualización automática por consulta periódica, no una conexión de eventos permanente.
 
 ## Compra con tu botón Webpay
+
+La configuración inicial usa el formulario público `114823` incluido en el proyecto.
+Funciona aunque `WEBPAY_FORM_ID` no esté en Vercel. Una variable con otro número válido
+lo reemplaza; un valor explícito inválido bloquea el pago. Esto no activa Webpay Plus.
 
 1. El servidor calcula precios, envío y total desde SQL; valida todas las variantes.
 2. Crea el pedido pendiente y reserva unidades en una transacción. Dos clientes no pueden
