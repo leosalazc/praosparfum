@@ -153,3 +153,17 @@ con un único descuento de stock. El segundo proceso recuperó los datos sin vol
 descontar ni restaurar el catálogo inicial. El contenedor y las credenciales de prueba
 se eliminaron. Esto comprueba PostgreSQL local; la conexión remota a Neon aún
 depende de crear la base, conectar la integración y volver a desplegar en Vercel.
+
+## Diagnóstico del despliegue que recibe la conexión
+
+Ante una base Neon en estado Available pero una tienda que aún no recibe la conexión,
+el estado administrativo incluye nombres y estados de las dos variables admitidas,
+variables de conexión con prefijo, entorno del despliegue y commit abreviado. Nunca
+incluye URLs de conexión, usuario, contraseña ni otros valores del entorno.
+El panel muestra esa comprobación cuando el almacenamiento no está listo.
+
+Solo las sesiones administrativas pueden consultar este diagnóstico; la respuesta es
+privada y no se almacena en caché. No cambia la selección de base ni debilita TLS.
+La suite completa pasa 47 pruebas, incluidas cinco sobre filtrado de secretos, límites
+del diagnóstico, ausencia de conexión y rechazo de acceso sin sesión. TypeScript y la
+compilación de frontend/servidor también pasan.

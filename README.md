@@ -93,6 +93,19 @@ Crear y conectar la base requiere la sesión de tu cuenta de Vercel/Neon. Este r
 no incluye esa conexión ni crea cuentas automáticamente. Conecta bases de prueba
 distintas para Preview; elige solo Production para la base real de la tienda.
 
+Si la base dice **Available** pero la tienda sigue sin conexión, abre `/admin` → Ajustes.
+La sección **Comprobación de este despliegue** muestra el entorno y si `DATABASE_URL`
+y `POSTGRES_URL` están ausentes, vacías o tienen valor. También identifica nombres con
+prefijo que la aplicación todavía no utiliza. No muestra la conexión, usuario ni contraseña.
+Compara ese resultado con las variables del proyecto; una base creada necesita estar
+conectada al proyecto y sus variables incorporadas en un nuevo despliegue de Production.
+
+Si la integración no añade la variable, en Neon pulsa **Connect**, activa la conexión
+agrupada (**Connection pooling**) y copia únicamente la URL que empieza por
+`postgresql://`. Guárdala de forma privada como `DATABASE_URL` en **Vercel → Settings →
+Environment Variables → Production**, guarda y vuelve a desplegar. La URL contiene
+credenciales: no la pegues en el chat, GitHub ni el código del navegador.
+
 ### Si no puedes entrar al administrador
 
 Despliega el último commit de `main` en el proyecto que sirve

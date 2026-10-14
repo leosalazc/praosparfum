@@ -36,6 +36,32 @@ export function storageConfiguration() {
   }
   return { mode: 'sqlite' as const, configured: true, persistent: true };
 }
+
+/** Safe diagnostics for the authenticated administrator. Values and database
+ * addresses never leave the server. */
+export function storageDiagnostics() {
+  const variableStatus = (name: string): 'missing' | 'empty' | 'present' => {
+    const value = process.env[name];
+    return value === undefined ? 'missing' : value.trim() ? 'present' : 'empty';
+  };
+  const deploymentEnvironment = (process.env.VERCEL_TARGET_ENV || process.env.VERCEL_ENV || '').trim();
+  let environment: 'production' | 'preview' | 'development' | 'unknown' | 'custom' = 'unknown';
+  if (deploymentEnvironment === 'production' || deploymentEnvironment === 'preview' || deploymentEnvironment === 'development') {
+    environment = deploymentEnvironment;
+  } else if (/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/.test(deploymentEnvironment)) {
+    environment = 'custom';
+  }
+  const commit = process.env.VERCEL_GIT_COMMIT_SHA?.trim() || '';
+  return {
+    variables: ['DATABASE_URL', 'POSTGRES_URL'].map((name) => ({ name, status: variableStatus(name) })),
+    additionalVariables: Object.keys(process.env)
+      .filter((name) => /^[A-Z][A-Z0-9_]{0,99}_(DATABASE_URL|POSTGRES_URL)$/.test(name))
+      .sort()
+      .slice(0, 10)
+      .map((name) => ({ name, status: variableStatus(name) as 'empty' | 'present' })),
+    deployment: { environment, commit: /^[0-9a-f]{7,40}$/i.test(commit) ? commit.slice(0, 7) : null },
+  };
+}
 function sqliteConnection(db: DatabaseSync): Connection {
   return { query: async <T extends Row>(sql: string, params: unknown[] = []) => {
     const stmt = db.prepare(sql);
@@ -112,13 +138,14 @@ export async function ensureDatabase() {
 /** Report connectivity separately from configuration presence. */
 export async function storageStatus() {
   const config = storageConfiguration();
-  if (!config.configured) return { ...config, ready: false };
+  const diagnostics = storageDiagnostics();
+  if (!config.configured) return { ...config, ready: false, diagnostics };
   try {
     await transaction(async (db) => { await db.query('SELECT 1 AS ready'); });
-    return { ...config, ready: true };
+    return { ...config, ready: true, diagnostics };
   } catch (error) {
     console.error('[database] La comprobación de conexión falló:', (error as Error).message);
-    return { ...config, ready: false, error: 'La base de datos no está disponible. Revisa la conexión y los certificados del servidor.' };
+    return { ...config, ready: false, diagnostics, error: 'La base de datos no está disponible. Revisa la conexión y los certificados del servidor.' };
   }
 }
 /** All operations share a database-level lock. PostgreSQL coordinates separate

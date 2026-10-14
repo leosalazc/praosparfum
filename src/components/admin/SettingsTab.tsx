@@ -5,7 +5,14 @@ import { adminFetch } from './api';
 type Status = {
   email: { configured: boolean; notifyTo: string };
   webpay: { mode: 'boton' | 'produccion' | 'integracion'; formId: string; configured: boolean; error?: string };
-  storage: { mode: 'postgres' | 'sqlite' | 'unconfigured'; configured: boolean; persistent: boolean; ready: boolean; error?: string };
+  storage: {
+    mode: 'postgres' | 'sqlite' | 'unconfigured'; configured: boolean; persistent: boolean; ready: boolean; error?: string;
+    diagnostics?: {
+      variables: { name: string; status: 'missing' | 'empty' | 'present' }[];
+      additionalVariables: { name: string; status: 'empty' | 'present' }[];
+      deployment: { environment: 'production' | 'preview' | 'development' | 'unknown' | 'custom'; commit: string | null };
+    };
+  };
   adminConfigured: boolean;
   sessionConfigured: boolean;
 };
@@ -34,7 +41,10 @@ export function SettingsTab() {
   if (error) return <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg" role="alert">{error}</p>;
   if (!status) return <p className="text-sm text-neutral-400">Cargando…</p>;
 
-  const code = 'bg-neutral-100 px-1 rounded font-mono text-xs';
+  const code = 'bg-neutral-100 px-1 rounded font-mono text-xs break-all';
+  const diagnostics = status.storage.diagnostics;
+  const variableState = { missing: 'ausente', empty: 'vacía', present: 'con valor' };
+  const deploymentEnvironment = { production: 'Producción', preview: 'Preview', development: 'Desarrollo', custom: 'Personalizado', unknown: 'Sin identificar' };
   return (
     <div className="space-y-3 max-w-2xl">
       <Row ok={status.storage.configured && status.storage.ready && status.storage.persistent && !status.storage.error} title={`Almacenamiento: ${status.storage.mode === 'postgres' ? 'PostgreSQL' : status.storage.mode === 'sqlite' ? 'SQLite local (desarrollo)' : 'sin configurar'}`}>
@@ -46,6 +56,22 @@ export function SettingsTab() {
           <p className="text-neutral-600">Conecta una base Neon desde la sección Storage de tu proyecto en Vercel. La conexión debe quedar guardada como <span className={code}>DATABASE_URL</span> o <span className={code}>POSTGRES_URL</span>. Después vuelve a desplegar para activar productos, pedidos e inventario.</p>
         )}
         {status.storage.error && <p className="text-red-700" role="alert">{status.storage.error}</p>}
+        {!status.storage.ready && diagnostics && (
+          <div className="mt-3 border-t border-neutral-200 pt-3 space-y-2" aria-label="Comprobación de conexión">
+            <p className="font-medium">Comprobación de este despliegue</p>
+            <p className="text-neutral-600">Entorno: {deploymentEnvironment[diagnostics.deployment.environment]}{diagnostics.deployment.commit && <> · Versión: <span className={code}>{diagnostics.deployment.commit}</span></>}</p>
+            <ul className="space-y-1 text-neutral-600">
+              {diagnostics.variables.map((variable) => <li key={variable.name}><span className={code}>{variable.name}</span>: {variableState[variable.status]}</li>)}
+            </ul>
+            {diagnostics.additionalVariables.length > 0 && <>
+              <p className="text-neutral-600">También se detectaron estas variables de conexión:</p>
+              <ul className="space-y-1 text-neutral-600">
+                {diagnostics.additionalVariables.map((variable) => <li key={variable.name}><span className={code}>{variable.name}</span>: {variableState[variable.status]}</li>)}
+              </ul>
+              {!status.storage.configured && <p className="text-neutral-600">Guarda la conexión con el nombre <span className={code}>DATABASE_URL</span> en las variables de Production de Vercel y vuelve a desplegar.</p>}
+            </>}
+          </div>
+        )}
       </Row>
 
       <Row ok={status.adminConfigured && status.sessionConfigured} title="Acceso de administrador">
