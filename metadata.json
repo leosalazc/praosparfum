@@ -1,0 +1,6 @@
+{
+  "name": "Praos Parfum",
+  "description": "Tienda online de Praos Parfum, fragancias de autor.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
