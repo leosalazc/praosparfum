@@ -6,7 +6,7 @@ import { CHILE_REGIONS, Order, OrderItem, OrderStatus, ORDER_STATUSES, getVarian
 import { getCatalog, invalidateCatalog } from './catalog.js';
 import { confirmPaidOrder, getOrder, getOrderByPaymentToken, listOrders, reserveOrder, updateOrder } from './orders.js';
 import { NOTIFY_EMAIL, sendCustomerConfirmation, sendOrderEmails, sendPendingOrderEmail, sendTestEmail, smtpConfigured } from './mailer.js';
-import { ADMIN_SESSION_COOKIE, ADMIN_SESSION_SECONDS, adminConfigurationIssues, adminPasswordConfigured, adminSessionConfigured, checkPassword, createSession, sessionFromCookie, verifySession } from './auth.js';
+import { ADMIN_SESSION_COOKIE, ADMIN_SESSION_SECONDS, createAdminAuth, sessionFromCookie, type AdminAuth } from './auth.js';
 import * as adminProducts from './products.js';
 import { storageStatus } from './database.js';
 import { hasAllowedAdminOrigin } from './origin.js';
@@ -84,8 +84,9 @@ function publicOrder(order: Order, payment: ReturnType<typeof paymentConfigurati
 }
 
 /** The public and admin API, used by both the Node server and Vercel. */
-export function createApp(options: { webpay?: WebpayClient } = {}) {
+export function createApp(options: { webpay?: WebpayClient; auth?: AdminAuth } = {}) {
   const app = express();
+  const auth = options.auth ?? createAdminAuth();
   const payment = paymentConfiguration();
   const webpay: WebpayClient | null = options.webpay || (payment.mode === 'plus' && payment.configured ? new WebpayPlus.Transaction(payment.production
     ? new Options(process.env.WEBPAY_COMMERCE_CODE!, process.env.WEBPAY_API_KEY!, Environment.Production)
@@ -94,6 +95,13 @@ export function createApp(options: { webpay?: WebpayClient } = {}) {
   app.set('trust proxy', process.env.TRUST_PROXY === '1' ? 1 : false);
   app.disable('x-powered-by');
   app.disable('etag');
+  // Keep private server artifacts inaccessible even when a development file server follows this API.
+  app.use((req, res, next) => {
+    let requestedPath: string;
+    try { requestedPath = decodeURIComponent(req.path); } catch { return res.sendStatus(400); }
+    if (/\/(?:\.private(?:\/|$)|server\/admin-credentials\.json(?:\/|$))/i.test(requestedPath)) return res.sendStatus(404);
+    next();
+  });
   app.use(compression());
   app.use('/api', (_req, res, next) => {
     res.setHeader('Cache-Control', 'private, no-store');
@@ -119,13 +127,13 @@ export function createApp(options: { webpay?: WebpayClient } = {}) {
     next();
   });
   const requireAdmin: express.RequestHandler = (req, res, next) => {
-    if (!verifySession(sessionFromCookie(req.get('cookie')))) {
+    if (!auth.verifySession(sessionFromCookie(req.get('cookie')))) {
       if (rate.limited(`auth:${req.ip}`, 20, 10 * 60_000)) return res.status(429).json({ error: 'Demasiados intentos. Espera 10 minutos.' });
       return res.status(401).json({ error: 'Sesión expirada. Vuelve a iniciar sesión.' });
     }
     next();
   };
-  const cookieOptions = (req: express.Request) => ({ httpOnly: true, sameSite: 'strict' as const, secure: process.env.NODE_ENV === 'production' || req.secure, path: '/api/admin' });
+  const cookieOptions = (req: express.Request) => ({ httpOnly: true, sameSite: 'strict' as const, secure: process.env.NODE_ENV === 'production' || process.env.VERCEL === '1' || req.secure, path: '/api/admin' });
   const imageHash = (data: string) => crypto.createHash('sha256').update(data).digest('hex').slice(0, 16);
   const imageUrl = (product: { id: string; image?: string }) => product.image?.startsWith('data:')
     ? `/api/products/${encodeURIComponent(product.id)}/image?v=${imageHash(product.image)}` : product.image;
@@ -249,16 +257,16 @@ export function createApp(options: { webpay?: WebpayClient } = {}) {
     res.json(publicOrder(order, payment));
   }));
 
-  app.post('/api/admin/login', (req, res) => {
-    const configurationIssues = adminConfigurationIssues();
+  app.post('/api/admin/login', asyncRoute(async (req, res) => {
+    const configurationIssues = auth.configurationIssues();
     if (configurationIssues.length) {
       return res.status(503).json({ error: configurationIssues.join(' '), code: 'ADMIN_CONFIGURATION_INCOMPLETE' });
     }
     if (rate.limited(`login:${req.ip}`, 8, 10 * 60_000)) return res.status(429).json({ error: 'Demasiados intentos. Espera 10 minutos.' });
-    if (!checkPassword(req.body?.password)) return res.status(401).json({ error: 'Contraseña incorrecta.' });
-    res.cookie(ADMIN_SESSION_COOKIE, createSession(), { ...cookieOptions(req), maxAge: ADMIN_SESSION_SECONDS * 1000 });
+    if (!await auth.checkPassword(req.body?.password)) return res.status(401).json({ error: 'Contraseña incorrecta.' });
+    res.cookie(ADMIN_SESSION_COOKIE, auth.createSession(), { ...cookieOptions(req), maxAge: ADMIN_SESSION_SECONDS * 1000 });
     res.json({ ok: true });
-  });
+  }));
   app.post('/api/admin/logout', (_req, res) => {
     res.clearCookie(ADMIN_SESSION_COOKIE, cookieOptions(_req));
     res.json({ ok: true });
@@ -270,7 +278,7 @@ export function createApp(options: { webpay?: WebpayClient } = {}) {
   app.post('/api/admin/products/seed', requireAdmin, asyncRoute(async (_req, res) => res.json({ changes: await adminProducts.seedProducts() })));
   app.post('/api/admin/products/apply-prices', requireAdmin, asyncRoute(async (_req, res) => res.json({ updated: await adminProducts.applyPriceList() })));
   app.get('/api/admin/status', requireAdmin, asyncRoute(async (_req, res) => {
-    res.json({ email: { configured: smtpConfigured(), notifyTo: NOTIFY_EMAIL }, webpay: { mode: payment.mode === 'link' ? 'boton' : payment.production ? 'produccion' : 'integracion', formId: payment.formId, configured: payment.configured, error: payment.error }, storage: await storageStatus(), adminConfigured: adminPasswordConfigured(), sessionConfigured: adminSessionConfigured() });
+    res.json({ email: { configured: smtpConfigured(), notifyTo: NOTIFY_EMAIL }, webpay: { mode: payment.mode === 'link' ? 'boton' : payment.production ? 'produccion' : 'integracion', formId: payment.formId, configured: payment.configured, error: payment.error }, storage: await storageStatus(), adminConfigured: auth.passwordConfigured(), sessionConfigured: auth.sessionConfigured() });
   }));
   app.get('/api/admin/orders', requireAdmin, asyncRoute(async (_req, res) => res.json(await listOrders())));
   app.patch('/api/admin/orders/:id', requireAdmin, asyncRoute(async (req, res) => {

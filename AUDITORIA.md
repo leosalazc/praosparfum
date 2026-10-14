@@ -9,7 +9,7 @@ suficiente de funcionamiento.
 
 | Severidad | Hallazgo del ZIP | Corrección implementada |
 |---|---|---|
-| Crítica | La sesión era la contraseña y se almacenaba en localStorage; contraseña de respaldo incorporada. | Contraseña explícita en configuración privada, cookie HttpOnly firmada y caducidad, protección de Origin en escrituras. |
+| Crítica | La sesión era la contraseña y se almacenaba en localStorage; contraseña de respaldo incorporada. | Huella scrypt de una contraseña elegida por el propietario, clave privada de sesión por despliegue, cookie HttpOnly firmada con caducidad y protección de Origin en escrituras. |
 | Alta | La edición de productos dependía de una cuenta Firebase. | CRUD protegido en SQL, fotos, precios, visibilidad y stock desde el administrador; SDK/configuración Firebase eliminados. |
 | Alta | Pedidos en JSON `/tmp` de Vercel podían desaparecer o divergir entre instancias. | PostgreSQL obligatorio en Vercel; SQLite transaccional solo local/servidor persistente autorizado. |
 | Alta | Comprobar stock y descontarlo eran pasos independientes; dos compradores podían comprar la última unidad. | Reserva SQL atómica con vencimiento; bloqueo a nivel de base de datos. |
@@ -36,7 +36,9 @@ suficiente de funcionamiento.
   de ventas ni las fotos que pudieran existir únicamente en Firebase. No se migraron esos datos.
 - El inventario es por referencia y compartido entre tamaños. Las devoluciones financieras
   requieren gestión explícita con Transbank; cambiar el estado de despacho no reembolsa dinero.
-- Los datos sensibles y claves no van a GitHub. Los backups deben configurarse en SQL.
+- Los pedidos, contraseñas originales y claves de sesión no van a GitHub. El repositorio
+  contiene la huella scrypt de acceso; mantenlo privado para limitar intentos de descifrado
+  fuera de línea. Los backups deben configurarse en SQL.
 - Limitación actual de escala: rate limiting por instancia y bloqueo global de transacciones
   breves. Para tráfico alto se recomienda protección compartida y optimizar lecturas/bloqueos.
 - Cerrar sesión borra la cookie local; invalidación inmediata de una copia requiere rotar
@@ -91,3 +93,42 @@ agotan el límite de intentos de contraseña; el límite sigue activo para login
 configuración válida. Codex y el proyecto publicado en Vercel requieren configuración
 independiente; las variables de uno no se transfieren al otro. La suite actual de
 36 pruebas pasó, al igual que TypeScript y el build de producción.
+
+## Acceso por contraseña sin variables administrativas obligatorias
+
+14 de octubre de 2026: tras comprobar que las variables de Codex no estaban disponibles
+en el despliegue de Vercel, se preparó una alternativa solicitada por el propietario.
+Esta sección reemplaza el requisito administrativo de las secciones anteriores.
+
+El servidor guarda una huella scrypt con sal aleatoria, coste N=131072, r=8, p=1 y
+32 bytes de resultado. La contraseña original se procesa en memoria y no se escribe
+en el código. Una `ADMIN_PASSWORD` válida sigue siendo un reemplazo opcional;
+las variables antiguas inválidas no bloquean el acceso y `ADMIN_SESSION_SECRET`
+dejó de utilizarse. La huella nunca sirve como contraseña ni como clave de sesión.
+
+`npm run build` genera una clave aleatoria independiente de 48 bytes en `.private/`.
+Vercel incluye ambos archivos únicamente en la función del servidor. La clave permanece
+estable entre instancias de un despliegue; cada nueva compilación invalida las sesiones
+anteriores. Los archivos ausentes o corruptos bloquean el acceso de forma segura.
+Los endpoints y el servidor de Vite rechazan las rutas privadas. Scrypt se ejecuta
+fuera del hilo de peticiones, con dos verificaciones simultáneas y 16 en espera.
+
+Validación de esta alternativa:
+
+- 40 pruebas aprobadas, cero fallos u omisiones: acceso en producción/Vercel sin
+  ambas variables, rechazo de contraseña incorrecta, sesiones entre procesos,
+  manipulación/caducidad/rotación, archivos corruptos, saturación y regresiones de stock.
+- TypeScript y compilación de frontend/servidor aprobados.
+- Builder oficial `@vercel/node` 24.0.0 y `@vercel/build-utils` 14.21.0 ejecutado
+  en copia aislada: función Node 24 con el verificador y la clave privada incluidos.
+- Ninguna contraseña original ni clave de sesión en archivos destinados a Git;
+  ningún verificador, sal ni clave privada en `dist` o `public`.
+- Preparación repetible, rotación al compilar y conservación de archivos desconocidos
+  comprobadas en directorios temporales aislados.
+- Chromium: 10 comprobaciones aprobadas con ambas variables ausentes del servidor:
+  login correcto/incorrecto, cookies privadas, sesión tras recargar, cierre de sesión,
+  catálogo de 46 productos y Ajustes con SQLite aislada. Ocho rutas privadas rechazadas
+  sin contenido confidencial, incluidas `/@fs`, `?raw` y variantes codificadas.
+
+La web consultada aún devuelve falta de `DATABASE_URL`. Este cambio permite autenticarse
+sin esa conexión, pero no sustituye PostgreSQL para guardar productos, pedidos o stock.

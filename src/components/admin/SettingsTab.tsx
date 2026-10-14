@@ -49,8 +49,8 @@ export function SettingsTab() {
       </Row>
 
       <Row ok={status.adminConfigured && status.sessionConfigured} title="Acceso de administrador">
-        <p className="text-neutral-600">La sesión se guarda en una cookie protegida. Configura <span className={code}>ADMIN_PASSWORD</span> y <span className={code}>ADMIN_SESSION_SECRET</span> de forma privada en el servidor.</p>
-        {(!status.adminConfigured || !status.sessionConfigured) && <p className="text-red-700">La contraseña o la clave de sesión requieren configuración.</p>}
+        <p className="text-neutral-600">El acceso usa tu contraseña y una cookie protegida. La sesión se prepara automáticamente al desplegar.</p>
+        {(!status.adminConfigured || !status.sessionConfigured) && <p className="text-red-700">El acceso no se preparó correctamente. Vuelve a desplegar la versión más reciente.</p>}
       </Row>
 
       <Row ok={status.webpay.configured && status.webpay.mode !== 'integracion'} title={`Webpay: ${status.webpay.mode === 'boton' ? `botón de pago (formulario ${status.webpay.formId})` : status.webpay.mode === 'produccion' ? 'Webpay Plus producción' : 'Webpay Plus de pruebas'}`}>

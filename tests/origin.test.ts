@@ -4,9 +4,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer, request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import type { Request } from 'express';
 import { hasAllowedAdminOrigin } from '../server/origin.js';
+import { type AdminAuth } from '../server/auth.js';
+import { adminAuthFixture } from './helpers/adminAuthFixture.js';
+
+const authFixture = adminAuthFixture({ passwordOverride: () => process.env.ADMIN_PASSWORD });
+after(() => authFixture.cleanup());
 
 function requestHeaders(headers: Record<string, string | undefined>): Pick<Request, 'get'> {
   const values = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]));
@@ -110,9 +115,9 @@ type Response = { status: number; data: any; setCookie: string[] };
 
 async function serve(run: (send: (path: string, options: {
   method?: string; headers?: Record<string, string>; body?: unknown;
-}) => Promise<Response>) => Promise<void>) {
+}) => Promise<Response>) => Promise<void>, auth: AdminAuth = authFixture.auth) {
   const { createApp } = await import('../server/app.js');
-  const server = createServer(createApp());
+  const server = createServer(createApp({ auth }));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   assert(address && typeof address !== 'string');
@@ -213,4 +218,38 @@ test('production Vercel login accepts HTTPS Host through internal HTTP and rejec
       })).status, 403);
     });
   });
+});
+
+test('Vercel with packaged credentials accepts HTTPS login without admin variables and still enforces cross-site protection', async () => {
+  const fixture = adminAuthFixture();
+  try {
+    await withEnvironment({
+      NODE_ENV: 'test', VERCEL: '1', ADMIN_PASSWORD: undefined, ADMIN_SESSION_SECRET: undefined,
+      APP_URL: 'http://localhost:3000', WEBPAY_ENV: 'link', WEBPAY_FORM_ID: '123456', TRUST_PROXY: undefined,
+    }, async () => {
+      await serve(async (send) => {
+        const headers = { Host: 'praosparfum-drab.vercel.app', Origin: 'https://praosparfum-drab.vercel.app', 'Sec-Fetch-Site': 'same-origin' };
+        const login = await send('/api/admin/login', { method: 'POST', headers, body: { password: fixture.password } });
+        assert.equal(login.status, 200);
+        assert.deepEqual(login.data, { ok: true });
+        assert.match(login.setCookie[0] || '', /Secure/i);
+        assert.match(login.setCookie[0] || '', /HttpOnly/i);
+        const Cookie = login.setCookie[0]?.split(';')[0];
+        assert(Cookie);
+        assert.equal((await send('/api/admin/session', { headers: { ...headers, Cookie } })).status, 200);
+        const wrong = await send('/api/admin/login', { method: 'POST', headers, body: { password: 'incorrect-password' } });
+        assert.equal(wrong.status, 401);
+        assert.equal((await send('/api/admin/login', {
+          method: 'POST', headers: { ...headers, Origin: 'https://attacker.example.test' }, body: { password: fixture.password },
+        })).status, 403);
+        assert.equal((await send('/api/admin/login', {
+          method: 'POST', headers: { ...headers, 'Sec-Fetch-Site': 'cross-site' }, body: { password: fixture.password },
+        })).status, 403);
+        for (const response of [login, wrong]) {
+          assert.equal(JSON.stringify(response.data).includes(fixture.credentials.hash), false);
+          assert.equal(JSON.stringify(response.data).includes(fixture.keyDocument.key), false);
+        }
+      }, fixture.auth);
+    });
+  } finally { fixture.cleanup(); }
 });

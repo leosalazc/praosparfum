@@ -10,3 +10,4 @@ coverage/
 .claude/
 server-dist/
 .vercel/
+/.private/

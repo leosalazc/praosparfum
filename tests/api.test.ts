@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { Pool } from 'pg';
+import { createAdminAuth, type AdminAuth } from '../server/auth.js';
+import { adminAuthFixture } from './helpers/adminAuthFixture.js';
 
 const temporary = await mkdtemp(join(tmpdir(), 'praos-api-'));
 const password = randomBytes(24).toString('base64url');
+const authFixture = adminAuthFixture({ passwordOverride: () => process.env.ADMIN_PASSWORD });
 process.env.NODE_ENV = 'test';
 process.env.SQLITE_FILE = join(temporary, 'shop.sqlite');
 process.env.ADMIN_PASSWORD = password;
@@ -47,6 +50,7 @@ after(async () => {
     await schemaPool.end();
   }
   await rm(temporary, { recursive: true, force: true });
+  authFixture.cleanup();
 });
 
 type Transaction = {
@@ -99,13 +103,13 @@ type Harness = {
   url: string;
   cookie: string;
   webpay: FakeWebpay;
-  request: (path: string, options?: { method?: string; body?: unknown; admin?: boolean; origin?: string | null; raw?: string }) => Promise<ApiResponse>;
+  request: (path: string, options?: { method?: string; body?: unknown; admin?: boolean; origin?: string | null; raw?: string; cookie?: string }) => Promise<ApiResponse>;
   close: () => Promise<void>;
 };
 
-async function harness(): Promise<Harness> {
+async function harness(options: { auth?: AdminAuth; login?: boolean } = {}): Promise<Harness> {
   const webpay = new FakeWebpay();
-  const server: Server = createServer(createApp({ webpay }));
+  const server: Server = createServer(createApp({ webpay, auth: options.auth ?? authFixture.auth }));
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   assert(address && typeof address !== 'string');
@@ -116,6 +120,7 @@ async function harness(): Promise<Harness> {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (options.body !== undefined || options.raw !== undefined) headers['Content-Type'] = 'application/json';
     if (options.admin && cookie) headers.Cookie = cookie;
+    if (options.cookie) headers.Cookie = options.cookie;
     if (options.origin !== null) headers.Origin = options.origin ?? url;
     const response = await fetch(url + path, {
       method: options.method || 'GET', headers,
@@ -126,10 +131,12 @@ async function harness(): Promise<Harness> {
     const data = response.headers.get('content-type')?.includes('application/json') ? JSON.parse(text) : text;
     return { status: response.status, data, headers: response.headers };
   };
-  const login = await request('/api/admin/login', { method: 'POST', body: { password } });
-  assert.equal(login.status, 200);
-  cookie = login.headers.get('set-cookie')?.split(';')[0] || '';
-  assert(cookie, 'Successful login must issue a cookie');
+  if (options.login !== false) {
+    const login = await request('/api/admin/login', { method: 'POST', body: { password } });
+    assert.equal(login.status, 200);
+    cookie = login.headers.get('set-cookie')?.split(';')[0] || '';
+    assert(cookie, 'Successful login must issue a cookie');
+  }
   return {
     url, cookie, webpay, request,
     close: () => new Promise<void>((resolve, reject) => {
@@ -398,22 +405,18 @@ test('an unavailable production database returns bounded JSON failures for publi
   }
 });
 
-test('missing admin credentials and production payment credentials fail safely', async () => {
-  const h = await harness();
-  const existingPassword = process.env.ADMIN_PASSWORD;
+test('missing packaged admin credentials and production payment credentials fail safely', async () => {
+  const absentAuth = createAdminAuth({ credentials: null, keyFile: authFixture.keyFile, passwordOverride: () => undefined });
+  const h = await harness({ auth: absentAuth, login: false });
   try {
-    delete process.env.ADMIN_PASSWORD;
     const missing = await h.request('/api/admin/login', { method: 'POST', body: { password } });
     assert.equal(missing.status, 503);
     assert.equal(missing.data.code, 'ADMIN_CONFIGURATION_INCOMPLETE');
-    assert.match(missing.data.error, /ADMIN_PASSWORD/);
-    assert(!missing.data.error.includes('ADMIN_SESSION_SECRET'));
+    assert.doesNotMatch(missing.data.error, /ADMIN_PASSWORD|ADMIN_SESSION_SECRET/);
     assert(!missing.data.error.includes(password));
+    assert(!missing.data.error.includes(authFixture.credentials.hash));
     assert.equal((await h.request('/api/admin/session', { admin: true })).status, 401);
-  } finally {
-    process.env.ADMIN_PASSWORD = existingPassword;
-    await h.close();
-  }
+  } finally { await h.close(); }
 
   process.env.WEBPAY_ENV = 'production';
   const priorCommerce = process.env.WEBPAY_COMMERCE_CODE;
@@ -434,8 +437,10 @@ test('missing admin credentials and production payment credentials fail safely',
   }
 });
 
-test('a bad session key identifies only its own configuration and setup retries do not throttle corrected login', async () => {
-  const h = await harness();
+test('a missing deployment key fails safely and setup retries do not throttle login after the key is restored', async () => {
+  const missingKeyFile = join(temporary, 'not-yet-generated-session-key.json');
+  const auth = createAdminAuth({ credentials: authFixture.credentials, keyFile: missingKeyFile });
+  const h = await harness({ auth, login: false });
   const existingSecret = process.env.ADMIN_SESSION_SECRET;
   const existingNodeEnv = process.env.NODE_ENV;
   const existingVercel = process.env.VERCEL;
@@ -448,16 +453,12 @@ test('a bad session key identifies only its own configuration and setup retries 
       const missing = await h.request('/api/admin/login', { method: 'POST', body: { password }, origin: 'https://admin.example.test' });
       assert.equal(missing.status, 503);
       assert.equal(missing.data.code, 'ADMIN_CONFIGURATION_INCOMPLETE');
-      assert.match(missing.data.error, /Falta configurar ADMIN_SESSION_SECRET/);
-      assert(!missing.data.error.includes('ADMIN_PASSWORD'));
+      assert.doesNotMatch(missing.data.error, /ADMIN_PASSWORD|ADMIN_SESSION_SECRET/);
       assert(!missing.data.error.includes(password));
+      assert(!missing.data.error.includes(authFixture.keyDocument.key));
     }
     process.env.ADMIN_SESSION_SECRET = 'too-short-test-key';
-    const short = await h.request('/api/admin/login', { method: 'POST', body: { password }, origin: 'https://admin.example.test' });
-    assert.equal(short.status, 503);
-    assert.match(short.data.error, /ADMIN_SESSION_SECRET.*32/);
-    assert(!short.data.error.includes('too-short-test-key'));
-    process.env.ADMIN_SESSION_SECRET = existingSecret;
+    await writeFile(missingKeyFile, JSON.stringify(authFixture.keyDocument), { mode: 0o600 });
     const valid = await h.request('/api/admin/login', { method: 'POST', body: { password }, origin: 'https://admin.example.test' });
     assert.equal(valid.status, 200);
     assert.deepEqual(valid.data, { ok: true });
@@ -466,6 +467,54 @@ test('a bad session key identifies only its own configuration and setup retries 
     if (existingVercel === undefined) delete process.env.VERCEL; else process.env.VERCEL = existingVercel;
     process.env.NODE_ENV = existingNodeEnv;
     await h.close();
+    await rm(missingKeyFile, { force: true });
+  }
+});
+
+test('production login and a separate app instance share packaged auth without either admin environment variable', async () => {
+  const prior = Object.fromEntries(['NODE_ENV', 'VERCEL', 'ADMIN_PASSWORD', 'ADMIN_SESSION_SECRET', 'APP_URL'].map((key) => [key, process.env[key]]));
+  const fixture = adminAuthFixture();
+  let first: Harness | undefined;
+  let restarted: Harness | undefined;
+  try {
+    process.env.NODE_ENV = 'production';
+    process.env.VERCEL = '1';
+    delete process.env.ADMIN_PASSWORD;
+    delete process.env.ADMIN_SESSION_SECRET;
+    first = await harness({ auth: fixture.auth, login: false });
+    process.env.APP_URL = 'https://admin.example.test';
+    const origin = 'https://admin.example.test';
+    const wrong = await first.request('/api/admin/login', { method: 'POST', body: { password: 'incorrect-password' }, origin });
+    assert.equal(wrong.status, 401);
+    const hash = await first.request('/api/admin/login', { method: 'POST', body: { password: fixture.credentials.hash }, origin });
+    assert.equal(hash.status, 401);
+    const login = await first.request('/api/admin/login', { method: 'POST', body: { password: fixture.password }, origin });
+    assert.equal(login.status, 200);
+    assert.deepEqual(login.data, { ok: true });
+    const cookieHeader = login.headers.get('set-cookie') || '';
+    assert.match(cookieHeader, /HttpOnly/i);
+    assert.match(cookieHeader, /SameSite=Strict/i);
+    assert.match(cookieHeader, /Secure/i);
+    const cookie = cookieHeader.split(';')[0];
+    for (const sensitive of [fixture.password, fixture.credentials.hash, fixture.keyDocument.key]) {
+      assert.equal(JSON.stringify(login.data).includes(sensitive), false);
+      assert.equal(cookieHeader.includes(sensitive), false);
+    }
+    assert.equal((await first.request('/api/admin/session', { cookie })).status, 200);
+    const sameDeployment = createAdminAuth({ credentials: fixture.credentials, keyFile: fixture.keyFile, passwordOverride: () => undefined });
+    restarted = await harness({ auth: sameDeployment, login: false });
+    assert.equal((await restarted.request('/api/admin/session', { cookie })).status, 200);
+    for (const path of ['/api/.private/admin-session-key.json', '/api/server/admin-credentials.json', '/api/admin/session-key.json']) {
+      const inaccessible = await restarted.request(path, { cookie });
+      assert.equal(inaccessible.status, 404);
+      assert.equal(JSON.stringify(inaccessible.data).includes(fixture.keyDocument.key), false);
+      assert.equal(JSON.stringify(inaccessible.data).includes(fixture.credentials.hash), false);
+    }
+  } finally {
+    await first?.close();
+    await restarted?.close();
+    fixture.cleanup();
+    for (const [key, value] of Object.entries(prior)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
   }
 });
 

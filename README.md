@@ -12,15 +12,20 @@ Requiere Node 24 recomendado (mínimo 22.13), npm y el checkout existente.
 cd /workspace/praosparfum
 npm ci
 cp .env.example .env
-# Completa ADMIN_PASSWORD y ADMIN_SESSION_SECRET en el archivo privado.
 npm run dev
 ```
 
-Abre `/admin` en el servidor local. `ADMIN_PASSWORD` es una contraseña elegida por ti,
-entre 12 y 200 caracteres. `ADMIN_SESSION_SECRET` es una clave aleatoria independiente
-de al menos 32 caracteres. No hay contraseña predeterminada. No publiques estas claves.
-Puedes generar la clave de sesión con `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
-y guardarla únicamente en la configuración privada.
+Abre `/admin` y utiliza la contraseña preparada para este proyecto. El servidor comprueba
+su huella scrypt en `server/admin-credentials.json`; la contraseña original no está en
+el código ni en el navegador. `npm run dev` prepara automáticamente una clave privada
+de sesión en `.private/`, que no se sube a Git. No necesitas `ADMIN_SESSION_SECRET`.
+
+Para cambiar la contraseña, define `ADMIN_PASSWORD` de 12 a 200 caracteres en la
+configuración privada del entorno y ejecuta `npm run admin:password -- --replace`.
+El comando guarda solamente una nueva huella. Sube ese archivo y despliega para aplicar
+el cambio en Vercel. Nunca pases la contraseña como argumento de una orden ni la publiques.
+Si defines una `ADMIN_PASSWORD` válida en el servidor, tiene prioridad como reemplazo
+opcional; una variable vacía o incorrecta no bloquea la contraseña preparada.
 
 Sin `DATABASE_URL`, desarrollo usa `data/praos.sqlite`, persistente entre reinicios locales.
 Se carga una sola vez el catálogo inicial del ZIP: **revisa el stock físico real antes de vender**.
@@ -39,7 +44,9 @@ npm run build  # genera dist y server-dist
 ## Publicar en Vercel
 
 1. Importa `leosalazc/praosparfum` desde GitHub. `vercel.json` sirve `dist` y las rutas
-   `/api/*` mediante `api/index.ts`. Selecciona Node 24.
+   `/api/*` mediante `api/index.ts`. Selecciona Node 24 y el comando de compilación
+   **`npm run build`**, sin reemplazarlo por `vite build`. La compilación prepara una
+   clave privada de sesión que se incluye solamente en la función del servidor.
 2. Conecta una base **PostgreSQL persistente**, por ejemplo Neon desde el almacenamiento
    de Vercel. Usa la URL de conexión del proveedor en `DATABASE_URL`, solo en el servidor.
    El usuario de conexión necesita crear y acceder a las tablas en su esquema al primer inicio.
@@ -50,8 +57,6 @@ npm run build  # genera dist y server-dist
    | Variable | Valor/configuración |
    |---|---|
    | `DATABASE_URL` | Conexión PostgreSQL privada del proveedor. |
-   | `ADMIN_PASSWORD` | Tu contraseña privada de 12 a 200 caracteres. |
-   | `ADMIN_SESSION_SECRET` | Clave aleatoria privada de al menos 32 caracteres. |
    | `APP_URL` | Dominio definitivo HTTPS, sin ruta, por ejemplo tu URL de Vercel. Se utiliza para los retornos de pago; el administrador acepta también el dominio real servido por la aplicación. |
    | `WEBPAY_ENV` | `link`, según tu flujo actual. |
    | `WEBPAY_FORM_ID` | `114823`, formulario incluido en el proyecto entregado. Verifica que sea el de tu comercio. |
@@ -59,7 +64,8 @@ npm run build  # genera dist y server-dist
 
    No uses el prefijo `VITE_` para las claves: las expondría al navegador. El panel puede
    abrirse desde el dominio propio o de Vercel que sirve el mismo despliegue; no requiere
-   cambiar `APP_URL` por cada alias. En Preview, usa una base y claves de prueba separadas.
+   cambiar `APP_URL` por cada alias. En Preview, usa una base de prueba separada.
+   El acceso por contraseña ya está preparado; no exige variables administrativas.
 4. Despliega o vuelve a desplegar después de definir las variables. En `/admin` → Ajustes,
    comprueba que SQL tenga una conexión verificada y que Webpay esté configurado.
 5. Revisa el catálogo, precios, unidades físicas y pedidos; realiza una compra controlada
@@ -67,22 +73,21 @@ npm run build  # genera dist y server-dist
 
 ### Si no puedes entrar al administrador
 
-Las variables de **Codex** configuran el entorno de desarrollo. La web publicada
-necesita sus propias variables en **Vercel**, en el proyecto asociado al dominio
-que estás abriendo. Si has importado el repositorio de nuevo, revisa el proyecto
-correspondiente a la nueva dirección.
+Despliega el último commit de `main` en el proyecto que sirve
+`https://praosparfum-drab.vercel.app/admin`. Si el mensaje todavía exige
+`ADMIN_PASSWORD` o `ADMIN_SESSION_SECRET`, estás usando una versión anterior.
 
-En ese proyecto abre **Settings → Environment Variables**, selecciona **Production**
-y guarda el nombre exacto `ADMIN_PASSWORD` con tu contraseña como valor, y
-`ADMIN_SESSION_SECRET` con una clave aleatoria independiente de 32 caracteres o más.
-Los valores no deben ser los nombres de las variables ni las explicaciones del ejemplo.
-Después usa **Redeploy** sobre el último despliegue de producción: cambiar las variables
-no actualiza los procesos de un despliegue existente.
+Si el mensaje indica que falta el archivo privado de sesión, revisa en
+**Settings → Build and Deployment** que el comando sea `npm run build` y vuelve a
+desplegar. El archivo se genera automáticamente antes de empaquetar la función.
+`ADMIN_SESSION_SECRET` dejó de utilizarse. Una `ADMIN_PASSWORD` válida guardada en
+Vercel sigue reemplazando la contraseña preparada; elimina ese reemplazo si deseas
+volver a la contraseña del proyecto.
 
-El login ahora indica cuál variable está ausente, vacía o fuera del rango aceptado,
-sin mostrar su contenido. Si sigues viendo el mensaje antiguo que menciona ambas
-variables, el despliegue todavía no contiene esta mejora de diagnóstico. Elige el
-último commit de main antes de volver a desplegar.
+Entrar al panel funciona aunque todavía falte PostgreSQL. Sin `DATABASE_URL`, los
+productos, pedidos e inventario de producción no pueden leerse ni guardarse: el
+panel de Ajustes muestra el estado de esa conexión. Las variables de Codex no configuran
+la base de datos del despliegue de Vercel.
 
 La conexión PostgreSQL remota siempre verifica TLS y sus certificados. Para una CA privada
 configura `DATABASE_SSL_CA` con el PEM autorizado o `PGSSLROOTCERT` en un servidor Node.
@@ -148,7 +153,13 @@ para revisar disponibilidad; nunca se toma inventario reservado por otro cliente
 
 La sesión administrativa usa cookie HttpOnly, SameSite=Strict y Secure en producción,
 con vencimiento a las ocho horas. No se guarda la contraseña en localStorage. Cambiar
-`ADMIN_PASSWORD` o `ADMIN_SESSION_SECRET` invalida las sesiones anteriores. Salir elimina
+la contraseña o realizar una nueva compilación invalida las sesiones anteriores.
+La clave permanece estable entre instancias y reinicios de un mismo despliegue.
+La huella scrypt lleva sal aleatoria y no permite iniciar sesión por sí sola. Como
+una copia de esa huella permite probar contraseñas fuera de línea, usa una contraseña
+difícil de adivinar y conserva el repositorio privado. La clave de sesión se genera
+con aleatoriedad independiente, nunca a partir de la huella pública.
+Salir elimina
 la cookie del navegador; una copia robada sigue vigente hasta su expiración o rotación.
 Las escrituras administrativas exigen un Origin válido que coincida con el dominio y
 puerto que sirve la petición, o con `APP_URL` como origen público configurado para un

@@ -4,13 +4,17 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/prepare-auth.mjs",
     "dev": "tsx server.ts",
+    "prebuild": "node scripts/prepare-auth.mjs --rotate",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=server-dist/server.cjs",
     "start": "node server-dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server-dist",
     "lint": "tsc --noEmit -p .",
     "export-images": "tsx scripts/export-images.mjs",
+    "admin:password": "node scripts/configure-admin.mjs",
+    "pretest": "node scripts/prepare-auth.mjs",
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
